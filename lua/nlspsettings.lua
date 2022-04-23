@@ -121,9 +121,11 @@ end
 ---@return boolean error when loading local settings
 local get_settings = function(root_dir, server_name)
   local conf = config.get()
+
   local local_settings, err = load(
     string.format('%s/%s/%s.%s', root_dir, conf.local_settings_dir, server_name, loader.file_ext)
   )
+
   local global_settings = servers[server_name].global_settings or {}
   local conf_settings = servers[server_name].conf_settings or {}
 
@@ -190,11 +192,15 @@ M.update_settings = function(server_name)
     return true
   end
 
-  local errors = false
+  local errors = true
 
   -- server_name のすべてのクライアントの設定を更新する
   for _, client in ipairs(vim.lsp.get_active_clients()) do
     if client.name == server_name then
+      if client.config.root_dir == nil then
+        client.config.root_dir = uv.cwd()
+      end
+      errors = false -- if server is not active then there is no valid update
       -- 設定ファイルの設定と setup() の設定をマージする
       -- 各クライアントの設定を読み込みたいため、ループの中で読み込む
       local new_settings, err_ = get_settings(client.config.root_dir, server_name)
@@ -203,7 +209,7 @@ M.update_settings = function(server_name)
       end
 
       -- XXX: なぜか、エラーになる...
-      -- client.workspace_did_change_configuration(new_settings)
+      client.workspace_did_change_configuration(new_settings)
       client.notify('workspace/didChangeConfiguration', {
         settings = new_settings,
       })
@@ -232,7 +238,7 @@ local make_on_new_config = function(on_new_config)
     -- 1度だけ、保持する ()
     -- new_config.settings は `setup({settings = ...}) + default_config.settings`
     servers[server_name].conf_settings = vim.deepcopy(new_config.settings)
-    new_config.settings = get_settings(root_dir, server_name)
+    new_config.settings = get_settings(uv.cwd(), server_name)
   end)
 end
 
